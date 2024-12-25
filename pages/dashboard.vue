@@ -1,0 +1,391 @@
+<template>
+  <div class="min-h-screen bg-gray-100">
+    <!-- Toast notification -->
+    <div 
+      v-if="toast" 
+      class="fixed top-4 right-4 px-4 py-2 rounded-md text-sm font-medium text-white transition-opacity duration-300"
+      :class="toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'"
+    >
+      {{ toast.message }}
+    </div>
+
+    <div class="py-6">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <h1 class="text-3xl font-bold text-gray-900">Gym Manager</h1>
+      </div>
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
+        <!-- Search section -->
+        <div class="mt-8">
+          <div class="mt-1 relative rounded-md shadow-sm">
+            <input 
+              v-model="search"
+              type="text"
+              placeholder="Search by name, email, or phone..."
+              class="block w-full rounded-md border-gray-300 pl-4 pr-12 focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            >
+          </div>
+        </div>
+
+        <!-- Barcode scanner -->
+        <div class="mt-6">
+          <label class="block text-sm font-medium text-gray-700">Member Check-in</label>
+          <div class="mt-1">
+            <input 
+              v-model="barcode"
+              @keyup.enter="handleScan"
+              type="text"
+              placeholder="Scan member barcode"
+              class="block w-full rounded-md border-gray-300 pl-4 pr-12 focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              ref="barcodeInput"
+            >
+          </div>
+        </div>
+
+        <!-- Member list -->
+        <div class="mt-8 flex flex-col">
+          <div class="-my-2 -mx-4 overflow-x-auto sm:-mx-6 lg:-mx-8">
+            <div class="inline-block min-w-full py-2 align-middle md:px-6 lg:px-8">
+              <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+                <div v-if="members.length" class="bg-white">
+                  <div v-for="member in members" 
+                       :key="member.id"
+                       class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                    <div class="flex justify-between items-start">
+                      <div class="flex-grow">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">
+                          {{ member.name }}
+                        </h3>
+                        <div class="mt-2 max-w-xl text-sm text-gray-500">
+                          <p>Email: {{ member.email }}</p>
+                          <p>Phone: {{ member.phone }}</p>
+                          <p>Membership: {{ member.plan }}</p>
+                          <p>Expires: {{ formatDate(member.expiration_date) }}</p>
+                          
+                          <!-- Check-in history -->
+                          <div class="mt-3 space-y-1">
+                            <p class="font-medium text-gray-700">Recent Check-ins:</p>
+                            <div v-if="member.check_ins?.length" class="space-y-1">
+                              <p v-for="checkIn in member.check_ins" :key="checkIn.id" class="text-xs">
+                                {{ formatCheckInDate(checkIn.timestamp) }}
+                              </p>
+                            </div>
+                            <p v-else class="text-xs italic">No recent check-ins</p>
+                          </div>
+
+                          <!-- Family Members Section -->
+                          <div class="mt-4">
+                            <p class="font-medium text-gray-700">Family Members:</p>
+                            <div v-if="member.family_members?.length" class="mt-2 space-y-3">
+                              <div v-for="familyMember in member.family_members" 
+                                   :key="familyMember.id" 
+                                   class="pl-4 border-l-2 border-gray-200">
+                                <div class="flex justify-between items-center">
+                                  <div>
+                                    <p class="text-sm font-medium text-gray-900">{{ familyMember.name }}</p>
+                                    <p class="text-xs text-gray-500">Barcode: {{ familyMember.barcode }}</p>
+                                    <!-- Family Member Check-ins -->
+                                    <div class="mt-1" v-if="familyMember.check_ins?.length">
+                                      <p class="text-xs text-gray-500">Last check-in: {{ formatCheckInDate(familyMember.check_ins[0].timestamp) }}</p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    @click="manualCheckIn(member, familyMember)"
+                                    :disabled="!isActive(member)"
+                                    class="px-3 py-1 text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    Check In
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            <p v-else class="text-xs italic text-gray-500">No family members</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="ml-4 flex flex-col items-end space-y-2">
+                        <span 
+                          :class="[
+                            'px-2 inline-flex text-xs leading-5 font-semibold rounded-full',
+                            new Date(member.expiration_date) > new Date() 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-red-100 text-red-800'
+                          ]"
+                        >
+                          {{ new Date(member.expiration_date) > new Date() ? 'Active' : 'Expired' }}
+                        </span>
+                        <button
+                          @click="manualCheckIn(member)"
+                          :disabled="!isActive(member)"
+                          class="px-3 py-1 text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Check In
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-else-if="search" class="text-center py-12 bg-white">
+                  <p class="text-sm text-gray-500">No members found matching your search.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { useSupabaseClient } from '#imports'
+
+definePageMeta({
+  middleware: 'auth'
+})
+
+const client = useSupabaseClient()
+const search = ref('')
+const barcode = ref('')
+const members = ref([])
+const toast = ref(null)
+const barcodeInput = ref(null)
+
+// Audio feedback setup
+const audioContext = ref(null)
+
+onMounted(() => {
+  // Initialize AudioContext on first user interaction
+  const setupAudio = () => {
+    if (!audioContext.value) {
+      audioContext.value = new (window.AudioContext || window.webkitAudioContext)()
+    }
+    // Remove event listeners after first interaction
+    document.removeEventListener('click', setupAudio)
+    document.removeEventListener('keydown', setupAudio)
+  }
+  
+  document.addEventListener('click', setupAudio)
+  document.addEventListener('keydown', setupAudio)
+})
+
+// Function to play success sound
+function playSuccessSound() {
+  if (!audioContext.value) return
+  
+  const oscillator = audioContext.value.createOscillator()
+  const gainNode = audioContext.value.createGain()
+  
+  // Configure sound
+  oscillator.type = 'sine'
+  oscillator.frequency.setValueAtTime(1046.50, audioContext.value.currentTime) // High C note
+  gainNode.gain.setValueAtTime(0.1, audioContext.value.currentTime) // Lower volume
+  
+  // Configure envelope
+  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.value.currentTime + 0.2)
+  
+  // Connect nodes
+  oscillator.connect(gainNode)
+  gainNode.connect(audioContext.value.destination)
+  
+  // Play sound
+  oscillator.start()
+  oscillator.stop(audioContext.value.currentTime + 0.2)
+}
+
+// Format dates
+function formatDate(isoDateStr) {
+  if (!isoDateStr) return 'No date'
+  try {
+    const date = new Date(isoDateStr)
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })
+  } catch (error) {
+    console.error('Error formatting date:', error)
+    return 'Invalid Date'
+  }
+}
+
+function formatCheckInDate(isoDateStr) {
+  if (!isoDateStr) return 'No date'
+  try {
+    const date = new Date(isoDateStr)
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    })
+  } catch (error) {
+    console.error('Error formatting check-in date:', error)
+    return 'Invalid Date'
+  }
+}
+
+// Check if membership is active
+function isActive(member) {
+  try {
+    if (!member?.expiration_date) return false
+    const expiryDate = new Date(member.expiration_date)
+    const now = new Date()
+    return expiryDate > now
+  } catch (error) {
+    console.error('Error checking expiry:', error)
+    return false
+  }
+}
+
+// Show toast message
+function showToast(message, type = 'success') {
+  toast.value = { message, type }
+  setTimeout(() => {
+    toast.value = null
+  }, 3000)
+}
+
+// Enhanced search across multiple fields
+watch(search, async (query) => {
+  try {
+    if (query) {
+      const { data, error } = await client
+        .from('members')
+        .select(`
+          *,
+          pass_type:pass_types(name),
+          check_ins(id, timestamp),
+          family_members(
+            id,
+            name,
+            barcode,
+            check_ins(id, timestamp)
+          )
+        `)
+        .or('name.ilike.%' + query + '%,email.ilike.%' + query + '%,phone.ilike.%' + query + '%')
+        .order('name')
+
+      if (error) {
+        console.error('Search error:', error)
+        showToast('Error performing search', 'error')
+        return
+      }
+      
+      // Transform the data to include the pass type name and sort check-ins
+      members.value = data?.map(member => ({
+        ...member,
+        plan: member.pass_type?.name,
+        check_ins: member.check_ins?.sort((a, b) => 
+          new Date(b.timestamp) - new Date(a.timestamp)
+        ).slice(0, 5), // Show only last 5 check-ins
+        family_members: member.family_members?.map(fm => ({
+          ...fm,
+          check_ins: fm.check_ins?.sort((a, b) =>
+            new Date(b.timestamp) - new Date(a.timestamp)
+          ).slice(0, 1) // Show only the most recent check-in for family members
+        }))
+      })) || []
+    } else {
+      members.value = []
+    }
+  } catch (error) {
+    console.error('Search error:', error)
+    showToast('Error performing search', 'error')
+  }
+})
+
+// Manual check-in function
+async function manualCheckIn(member, familyMember = null) {
+  if (!isActive(member)) return
+
+  try {
+    if (familyMember) {
+      // Check in family member
+      await client.from('check_ins').insert({
+        family_member_id: familyMember.id,
+        timestamp: new Date().toISOString()
+      })
+      showToast(`${familyMember.name} checked in successfully`)
+      playSuccessSound()
+    } else {
+      // Check in primary member
+      await client.from('check_ins').insert({
+        member_id: member.id,
+        timestamp: new Date().toISOString()
+      })
+      showToast(`${member.name} checked in successfully`)
+      playSuccessSound()
+    }
+    
+    // Refresh the member data to update check-in history
+    if (search.value) {
+      // Trigger search again to refresh data
+      const currentSearch = search.value
+      search.value = ''
+      setTimeout(() => {
+        search.value = currentSearch
+      }, 100)
+    }
+  } catch (error) {
+    showToast('Failed to check in member', 'error')
+    console.error('Check-in error:', error)
+  }
+}
+
+// Handle barcode scan
+async function handleScan() {
+  if (!barcode.value) return
+
+  try {
+    // First check primary members
+    const { data: memberData } = await client
+      .from('members')
+      .select('*, pass_type:pass_types(name)')
+      .eq('barcode', barcode.value)
+      .single()
+    
+    if (memberData) {
+      if (!isActive(memberData)) {
+        showToast(`${memberData.name}'s membership has expired`, 'error')
+      } else {
+        // Log check-in for primary member
+        await client.from('check_ins').insert({
+          member_id: memberData.id,
+          timestamp: new Date().toISOString()
+        })
+        showToast(`${memberData.name} checked in successfully`)
+        playSuccessSound()
+      }
+    } else {
+      // Check family members if no primary member found
+      const { data: familyMemberData } = await client
+        .from('family_members')
+        .select('*, primary_member:members(expiration_date)')
+        .eq('barcode', barcode.value)
+        .single()
+      
+      if (familyMemberData) {
+        if (!isActive(familyMemberData.primary_member)) {
+          showToast(`${familyMemberData.name}'s membership has expired`, 'error')
+        } else {
+          // Log check-in for family member
+          await client.from('check_ins').insert({
+            family_member_id: familyMemberData.id,
+            timestamp: new Date().toISOString()
+          })
+          showToast(`${familyMemberData.name} checked in successfully`)
+        }
+      } else {
+        showToast('Member not found', 'error')
+      }
+    }
+  } catch (error) {
+    showToast('Error processing check-in', 'error')
+    console.error('Scan error:', error)
+  }
+  
+  barcode.value = ''
+  // Focus back on the barcode input
+  barcodeInput.value?.focus()
+}
+</script>
