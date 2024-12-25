@@ -8,11 +8,20 @@
     >
       {{ toast.message }}
     </div>
-
+ 
     <div class="py-6">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 class="text-3xl font-bold text-gray-900">Gym Manager</h1>
+        <div class="flex justify-between items-center">
+          <h1 class="text-3xl font-bold text-gray-900">Gym Manager</h1>
+          <button
+            @click="showNewMemberModal = true"
+            class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            Add New Member
+          </button>
+        </div>
       </div>
+ 
       <div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
         <!-- Search section -->
         <div class="mt-8">
@@ -25,7 +34,7 @@
             >
           </div>
         </div>
-
+ 
         <!-- Barcode scanner -->
         <div class="mt-6">
           <label class="block text-sm font-medium text-gray-700">Member Check-in</label>
@@ -40,7 +49,7 @@
             >
           </div>
         </div>
-
+ 
         <!-- Member list -->
         <div class="mt-8 flex flex-col">
           <div class="-my-2 -mx-4 overflow-x-auto sm:-mx-6 lg:-mx-8">
@@ -71,7 +80,7 @@
                             </div>
                             <p v-else class="text-xs italic">No recent check-ins</p>
                           </div>
-
+ 
                           <!-- Family Members Section -->
                           <div class="mt-4">
                             <p class="font-medium text-gray-700">Family Members:</p>
@@ -85,7 +94,9 @@
                                     <p class="text-xs text-gray-500">Barcode: {{ familyMember.barcode }}</p>
                                     <!-- Family Member Check-ins -->
                                     <div class="mt-1" v-if="familyMember.check_ins?.length">
-                                      <p class="text-xs text-gray-500">Last check-in: {{ formatCheckInDate(familyMember.check_ins[0].timestamp) }}</p>
+                                      <p class="text-xs text-gray-500">
+                                        Last check-in: {{ formatCheckInDate(familyMember.check_ins[0].timestamp) }}
+                                      </p>
                                     </div>
                                   </div>
                                   <button
@@ -106,20 +117,34 @@
                         <span 
                           :class="[
                             'px-2 inline-flex text-xs leading-5 font-semibold rounded-full',
-                            new Date(member.expiration_date) > new Date() 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
+                            isActive(member) ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                           ]"
                         >
-                          {{ new Date(member.expiration_date) > new Date() ? 'Active' : 'Expired' }}
+                          {{ isActive(member) ? 'Active' : 'Expired' }}
                         </span>
-                        <button
-                          @click="manualCheckIn(member)"
-                          :disabled="!isActive(member)"
-                          class="px-3 py-1 text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Check In
-                        </button>
+                        
+                        <!-- Action buttons -->
+                        <div class="flex space-x-2">
+                          <button
+                            @click="editMember(member)"
+                            class="px-3 py-1 text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            @click="printMembershipCards(member)"
+                            class="px-3 py-1 text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
+                          >
+                            Print Cards
+                          </button>
+                          <button
+                            @click="manualCheckIn(member)"
+                            :disabled="!isActive(member)"
+                            class="px-3 py-1 text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Check In
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -133,14 +158,41 @@
         </div>
       </div>
     </div>
+ 
+    <!-- Modals -->
+    <EditMemberModal
+      :show="showEditModal"
+      :member="selectedMember"
+      :pass-types="passTypes"
+      :is-loading="isUpdating"
+      @close="closeEditModal"
+      @save="updateMember"
+    />
+ 
+    <NewMemberModal
+      :show="showNewMemberModal"
+      :pass-types="passTypes"
+      :is-loading="isCreating"
+      @close="showNewMemberModal = false"
+      @save="createMember"
+    />
+ 
+    <PrintCardsModal
+      :show="showPrintModal"
+      :member="selectedMember"
+      @close="showPrintModal = false"
+    />
   </div>
-</template>
+ </template>
 
 <script setup>
 import { useSupabaseClient } from '#imports'
+import EditMemberModal from '~/components/EditMemberModal.vue'
+import NewMemberModal from '~/components/NewMemberModal.vue'
+import PrintCardsModal from '~/components/PrintCardsModal.vue'
 
 definePageMeta({
-  middleware: 'auth'
+ middleware: 'auth'
 })
 
 const client = useSupabaseClient()
@@ -150,242 +202,390 @@ const members = ref([])
 const toast = ref(null)
 const barcodeInput = ref(null)
 
+// Modal states
+const showEditModal = ref(false)
+const showNewMemberModal = ref(false)
+const showPrintModal = ref(false)
+const selectedMember = ref(null)
+const isUpdating = ref(false)
+const isCreating = ref(false)
+
+// Pass types for membership selection
+const passTypes = ref([])
+
 // Audio feedback setup
 const audioContext = ref(null)
 
-onMounted(() => {
-  // Initialize AudioContext on first user interaction
-  const setupAudio = () => {
-    if (!audioContext.value) {
-      audioContext.value = new (window.AudioContext || window.webkitAudioContext)()
-    }
-    // Remove event listeners after first interaction
-    document.removeEventListener('click', setupAudio)
-    document.removeEventListener('keydown', setupAudio)
-  }
-  
-  document.addEventListener('click', setupAudio)
-  document.addEventListener('keydown', setupAudio)
+onMounted(async () => {
+ const setupAudio = () => {
+   if (!audioContext.value) {
+     audioContext.value = new (window.AudioContext || window.webkitAudioContext)()
+   }
+   document.removeEventListener('click', setupAudio)
+   document.removeEventListener('keydown', setupAudio)
+ }
+ 
+ document.addEventListener('click', setupAudio)
+ document.addEventListener('keydown', setupAudio)
+
+ const { data: passTypeData } = await client
+   .from('pass_types')
+   .select('*')
+   .order('name')
+ 
+ passTypes.value = passTypeData || []
 })
 
-// Function to play success sound
 function playSuccessSound() {
-  if (!audioContext.value) return
-  
-  const oscillator = audioContext.value.createOscillator()
-  const gainNode = audioContext.value.createGain()
-  
-  // Configure sound
-  oscillator.type = 'sine'
-  oscillator.frequency.setValueAtTime(1046.50, audioContext.value.currentTime) // High C note
-  gainNode.gain.setValueAtTime(0.1, audioContext.value.currentTime) // Lower volume
-  
-  // Configure envelope
-  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.value.currentTime + 0.2)
-  
-  // Connect nodes
-  oscillator.connect(gainNode)
-  gainNode.connect(audioContext.value.destination)
-  
-  // Play sound
-  oscillator.start()
-  oscillator.stop(audioContext.value.currentTime + 0.2)
+ if (!audioContext.value) return
+ 
+ const oscillator = audioContext.value.createOscillator()
+ const gainNode = audioContext.value.createGain()
+ 
+ oscillator.type = 'sine'
+ oscillator.frequency.setValueAtTime(1046.50, audioContext.value.currentTime)
+ gainNode.gain.setValueAtTime(0.1, audioContext.value.currentTime)
+ gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.value.currentTime + 0.2)
+ 
+ oscillator.connect(gainNode)
+ gainNode.connect(audioContext.value.destination)
+ 
+ oscillator.start()
+ oscillator.stop(audioContext.value.currentTime + 0.2)
 }
 
-// Format dates
 function formatDate(isoDateStr) {
-  if (!isoDateStr) return 'No date'
-  try {
-    const date = new Date(isoDateStr)
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    })
-  } catch (error) {
-    console.error('Error formatting date:', error)
-    return 'Invalid Date'
-  }
+ if (!isoDateStr) return 'No date'
+ try {
+   const date = new Date(isoDateStr)
+   return date.toLocaleDateString('en-US', {
+     year: 'numeric',
+     month: 'long',
+     day: 'numeric'
+   })
+ } catch (error) {
+   console.error('Error formatting date:', error)
+   return 'Invalid Date'
+ }
 }
 
 function formatCheckInDate(isoDateStr) {
-  if (!isoDateStr) return 'No date'
-  try {
-    const date = new Date(isoDateStr)
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    })
-  } catch (error) {
-    console.error('Error formatting check-in date:', error)
-    return 'Invalid Date'
-  }
+ if (!isoDateStr) return 'No date'
+ try {
+   const date = new Date(isoDateStr)
+   return date.toLocaleDateString('en-US', {
+     month: 'short',
+     day: 'numeric',
+     hour: 'numeric',
+     minute: '2-digit'
+   })
+ } catch (error) {
+   console.error('Error formatting check-in date:', error)
+   return 'Invalid Date'
+ }
 }
 
-// Check if membership is active
 function isActive(member) {
-  try {
-    if (!member?.expiration_date) return false
-    const expiryDate = new Date(member.expiration_date)
-    const now = new Date()
-    return expiryDate > now
-  } catch (error) {
-    console.error('Error checking expiry:', error)
-    return false
-  }
+ try {
+   if (!member?.expiration_date) return false
+   const expiryDate = new Date(member.expiration_date)
+   const now = new Date()
+   return expiryDate > now
+ } catch (error) {
+   console.error('Error checking expiry:', error)
+   return false
+ }
 }
 
-// Show toast message
 function showToast(message, type = 'success') {
-  toast.value = { message, type }
-  setTimeout(() => {
-    toast.value = null
-  }, 3000)
+ toast.value = { message, type }
+ setTimeout(() => {
+   toast.value = null
+ }, 3000)
 }
 
-// Enhanced search across multiple fields
 watch(search, async (query) => {
-  try {
-    if (query) {
-      const { data, error } = await client
-        .from('members')
-        .select(`
-          *,
-          pass_type:pass_types(name),
-          check_ins(id, timestamp),
-          family_members(
-            id,
-            name,
-            barcode,
-            check_ins(id, timestamp)
-          )
-        `)
-        .or('name.ilike.%' + query + '%,email.ilike.%' + query + '%,phone.ilike.%' + query + '%')
-        .order('name')
+ try {
+   if (query) {
+     const { data, error } = await client
+       .from('members')
+       .select(`
+         *,
+         pass_type:pass_types(name),
+         check_ins(id, timestamp),
+         family_members(
+           id,
+           name,
+           barcode,
+           check_ins(id, timestamp)
+         )
+       `)
+       .or(`name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%`)
+       .order('name')
 
-      if (error) {
-        console.error('Search error:', error)
-        showToast('Error performing search', 'error')
-        return
-      }
-      
-      // Transform the data to include the pass type name and sort check-ins
-      members.value = data?.map(member => ({
-        ...member,
-        plan: member.pass_type?.name,
-        check_ins: member.check_ins?.sort((a, b) => 
-          new Date(b.timestamp) - new Date(a.timestamp)
-        ).slice(0, 5), // Show only last 5 check-ins
-        family_members: member.family_members?.map(fm => ({
-          ...fm,
-          check_ins: fm.check_ins?.sort((a, b) =>
-            new Date(b.timestamp) - new Date(a.timestamp)
-          ).slice(0, 1) // Show only the most recent check-in for family members
-        }))
-      })) || []
-    } else {
-      members.value = []
-    }
-  } catch (error) {
-    console.error('Search error:', error)
-    showToast('Error performing search', 'error')
-  }
+     if (error) {
+       console.error('Search error:', error)
+       showToast('Error performing search', 'error')
+       return
+     }
+     
+     members.value = data?.map(member => ({
+       ...member,
+       plan: member.pass_type?.name,
+       check_ins: member.check_ins?.sort((a, b) => 
+         new Date(b.timestamp) - new Date(a.timestamp)
+       ).slice(0, 5),
+       family_members: member.family_members?.map(fm => ({
+         ...fm,
+         check_ins: fm.check_ins?.sort((a, b) =>
+           new Date(b.timestamp) - new Date(a.timestamp)
+         ).slice(0, 1)
+       }))
+     })) || []
+   } else {
+     members.value = []
+   }
+ } catch (error) {
+   console.error('Search error:', error)
+   showToast('Error performing search', 'error')
+ }
 })
 
-// Manual check-in function
-async function manualCheckIn(member, familyMember = null) {
-  if (!isActive(member)) return
-
-  try {
-    if (familyMember) {
-      // Check in family member
-      await client.from('check_ins').insert({
-        family_member_id: familyMember.id,
-        timestamp: new Date().toISOString()
-      })
-      showToast(`${familyMember.name} checked in successfully`)
-      playSuccessSound()
-    } else {
-      // Check in primary member
-      await client.from('check_ins').insert({
-        member_id: member.id,
-        timestamp: new Date().toISOString()
-      })
-      showToast(`${member.name} checked in successfully`)
-      playSuccessSound()
-    }
-    
-    // Refresh the member data to update check-in history
-    if (search.value) {
-      // Trigger search again to refresh data
-      const currentSearch = search.value
-      search.value = ''
-      setTimeout(() => {
-        search.value = currentSearch
-      }, 100)
-    }
-  } catch (error) {
-    showToast('Failed to check in member', 'error')
-    console.error('Check-in error:', error)
-  }
+function editMember(member) {
+ selectedMember.value = member
+ showEditModal.value = true
 }
 
-// Handle barcode scan
-async function handleScan() {
-  if (!barcode.value) return
+function closeEditModal() {
+ showEditModal.value = false
+ selectedMember.value = null
+}
 
-  try {
-    // First check primary members
-    const { data: memberData } = await client
-      .from('members')
-      .select('*, pass_type:pass_types(name)')
-      .eq('barcode', barcode.value)
-      .single()
-    
-    if (memberData) {
-      if (!isActive(memberData)) {
-        showToast(`${memberData.name}'s membership has expired`, 'error')
-      } else {
-        // Log check-in for primary member
-        await client.from('check_ins').insert({
-          member_id: memberData.id,
-          timestamp: new Date().toISOString()
-        })
-        showToast(`${memberData.name} checked in successfully`)
-        playSuccessSound()
-      }
-    } else {
-      // Check family members if no primary member found
-      const { data: familyMemberData } = await client
-        .from('family_members')
-        .select('*, primary_member:members(expiration_date)')
-        .eq('barcode', barcode.value)
-        .single()
-      
-      if (familyMemberData) {
-        if (!isActive(familyMemberData.primary_member)) {
-          showToast(`${familyMemberData.name}'s membership has expired`, 'error')
-        } else {
-          // Log check-in for family member
-          await client.from('check_ins').insert({
-            family_member_id: familyMemberData.id,
-            timestamp: new Date().toISOString()
-          })
-          showToast(`${familyMemberData.name} checked in successfully`)
-        }
-      } else {
-        showToast('Member not found', 'error')
-      }
-    }
-  } catch (error) {
-    showToast('Error processing check-in', 'error')
-    console.error('Scan error:', error)
-  }
-  
-  barcode.value = ''
-  // Focus back on the barcode input
-  barcodeInput.value?.focus()
+async function updateMember(updatedData) {
+ isUpdating.value = true
+ try {
+   const { error: memberError } = await client
+     .from('members')
+     .update({
+       name: updatedData.name,
+       email: updatedData.email,
+       phone: updatedData.phone,
+       pass_type_id: updatedData.pass_type_id,
+       expiration_date: updatedData.expiration_date
+     })
+     .eq('id', selectedMember.value.id)
+
+   if (memberError) throw memberError
+
+   if (updatedData.family_members?.length > 0) {
+     const { data: existingFamilyMembers } = await client
+       .from('family_members')
+       .select('id, name')
+       .eq('primary_member_id', selectedMember.value.id)
+
+     const newFamilyMembers = updatedData.family_members.filter(fm => !fm.id)
+     if (newFamilyMembers.length > 0) {
+       const newFamilyMembersData = newFamilyMembers.map(fm => ({
+         name: fm.name,
+         barcode: Math.random().toString(36).substring(2, 15) + 
+                 Math.random().toString(36).substring(2, 15),
+         primary_member_id: selectedMember.value.id,
+         status: 'active'
+       }))
+
+       const { error: createError } = await client
+         .from('family_members')
+         .insert(newFamilyMembersData)
+
+       if (createError) throw createError
+     }
+
+     const existingUpdates = updatedData.family_members
+       .filter(fm => fm.id)
+       .map(fm => ({
+         id: fm.id,
+         name: fm.name
+       }))
+
+     if (existingUpdates.length > 0) {
+       const { error: updateError } = await client
+         .from('family_members')
+         .upsert(existingUpdates)
+
+       if (updateError) throw updateError
+     }
+
+     const keepIds = updatedData.family_members
+       .filter(fm => fm.id)
+       .map(fm => fm.id)
+     const removeIds = existingFamilyMembers
+       .filter(fm => !keepIds.includes(fm.id))
+       .map(fm => fm.id)
+
+     if (removeIds.length > 0) {
+       const { error: deleteError } = await client
+         .from('family_members')
+         .delete()
+         .in('id', removeIds)
+
+       if (deleteError) throw deleteError
+     }
+   }
+
+   showToast('Member updated successfully')
+   closeEditModal()
+
+   if (search.value) {
+     const currentSearch = search.value
+     search.value = ''
+     setTimeout(() => search.value = currentSearch, 100)
+   }
+ } catch (error) {
+   console.error('Update error:', error)
+   showToast('Error updating member', 'error')
+ } finally {
+   isUpdating.value = false
+ }
+}
+
+async function createMember(memberData) {
+ isCreating.value = true
+ try {
+   const membershipNumber = `MEM${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000)}`
+
+   const { data: newMember, error: memberError } = await client
+     .from('members')
+     .insert({
+       name: memberData.name,
+       email: memberData.email,
+       phone: memberData.phone,
+       pass_type_id: memberData.pass_type_id,
+       expiration_date: memberData.expiration_date,
+       barcode: memberData.barcode,
+       membership_number: membershipNumber,
+       status: 'active'
+     })
+     .select()
+     .single()
+
+   if (memberError) throw memberError
+
+   if (memberData.family_members?.length > 0) {
+     const familyMembersData = memberData.family_members.map(fm => ({
+       name: fm.name,
+       barcode: fm.barcode,
+       primary_member_id: newMember.id,
+       status: 'active'
+     }))
+
+     const { error: familyError } = await client
+       .from('family_members')
+       .insert(familyMembersData)
+
+     if (familyError) throw familyError
+   }
+
+   showToast('Member created successfully')
+   showNewMemberModal.value = false
+
+   if (search.value) {
+     const currentSearch = search.value
+     search.value = ''
+     setTimeout(() => search.value = currentSearch, 100)
+   }
+ } catch (error) {
+   console.error('Creation error:', error)
+   showToast('Error creating member', 'error')
+ } finally {
+   isCreating.value = false
+ }
+}
+
+async function manualCheckIn(member, familyMember = null) {
+ if (!isActive(member)) return
+
+ try {
+   if (familyMember) {
+     await client.from('check_ins').insert({
+       family_member_id: familyMember.id,
+       timestamp: new Date().toISOString()
+     })
+     showToast(`${familyMember.name} checked in successfully`)
+     playSuccessSound()
+   } else {
+     await client.from('check_ins').insert({
+       member_id: member.id,
+       timestamp: new Date().toISOString()
+     })
+     showToast(`${member.name} checked in successfully`)
+     playSuccessSound()
+   }
+   
+   if (search.value) {
+     const currentSearch = search.value
+     search.value = ''
+     setTimeout(() => search.value = currentSearch, 100)
+   }
+ } catch (error) {
+   showToast('Failed to check in member', 'error')
+   console.error('Check-in error:', error)
+ }
+}
+
+async function handleScan() {
+ if (!barcode.value) return
+
+ try {
+   const { data: memberData } = await client
+     .from('members')
+     .select('*, pass_type:pass_types(name)')
+     .eq('barcode', barcode.value)
+     .single()
+   
+   if (memberData) {
+     if (!isActive(memberData)) {
+       showToast(`${memberData.name}'s membership has expired`, 'error')
+     } else {
+       await client.from('check_ins').insert({
+         member_id: memberData.id,
+         timestamp: new Date().toISOString()
+       })
+       showToast(`${memberData.name} checked in successfully`)
+       playSuccessSound()
+     }
+   } else {
+     const { data: familyMemberData } = await client
+       .from('family_members')
+       .select('*, primary_member:members(expiration_date)')
+       .eq('barcode', barcode.value)
+       .single()
+     
+     if (familyMemberData) {
+       if (!isActive(familyMemberData.primary_member)) {
+         showToast(`${familyMemberData.name}'s membership has expired`, 'error')
+       } else {
+         await client.from('check_ins').insert({
+           family_member_id: familyMemberData.id,
+           timestamp: new Date().toISOString()
+         })
+         showToast(`${familyMemberData.name} checked in successfully`)
+         playSuccessSound()
+       }
+     } else {
+       showToast('Member not found', 'error')
+     }
+   }
+ } catch (error) {
+   showToast('Error processing check-in', 'error')
+   console.error('Scan error:', error)
+ }
+ 
+ barcode.value = ''
+ barcodeInput.value?.focus()
+}
+
+function printMembershipCards(member) {
+ selectedMember.value = member
+ showPrintModal.value = true
 }
 </script>
