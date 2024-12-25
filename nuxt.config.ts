@@ -11,6 +11,7 @@ export default defineNuxtConfig({
   supabase: {
     url: process.env.SUPABASE_DATABASE_URL,
     key: process.env.PUBLIC_SUPABASE_ANON_KEY,
+    runtime: true,
     redirectOptions: {
       login: '/auth/signin',
       callback: '/confirm',
