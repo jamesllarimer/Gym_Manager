@@ -9,8 +9,8 @@ export default defineNuxtConfig({
   },
   modules: ['@nuxtjs/supabase', '@nuxtjs/tailwindcss'],
   supabase: {
-    url: process.env.SUPABASE_DATABASE_URL,
-    key: process.env.PUBLIC_SUPABASE_ANON_KEY,
+    url: process.env.NUXT_PUBLIC_SUPABASE_URL,
+    key: process.env.NUXT_PUBLIC_SUPABASE_ANON_KEY,
     runtime: true,
     redirectOptions: {
       login: '/auth/signin',
