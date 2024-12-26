@@ -12,11 +12,17 @@ export default defineNuxtConfig({
     }
   },
   pwa: {
+    registerType: 'autoUpdate',
     manifest: {
       name: 'Gym Manager',
       short_name: 'GymMgr',
       description: 'Gym membership and check-in management system',
       theme_color: '#4f46e5',
+      background_color: '#ffffff',
+      display: 'standalone',
+      orientation: 'portrait',
+      scope: '/',
+      start_url: '/',
       icons: [
         {
           src: 'BlackBox250.png',
@@ -26,7 +32,8 @@ export default defineNuxtConfig({
         {
           src: 'BlackBox500.png',
           sizes: '512x512',
-          type: 'image/png'
+          type: 'image/png',
+          purpose: 'any maskable'
         }
       ]
     },
@@ -46,6 +53,10 @@ export default defineNuxtConfig({
           }
         }
       ]
+    },
+    devOptions: {
+      enabled: true,
+      type: 'module'
     }
   }
 })
