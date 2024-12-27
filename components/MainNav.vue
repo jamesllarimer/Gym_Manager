@@ -1,4 +1,3 @@
-# components/MainNav.vue
 <template>
   <nav class="bg-white shadow">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -165,19 +164,14 @@ const navigationLinks = computed(() => {
   
   return isEmployee ? [
     { to: '/dashboard', text: 'Dashboard' },
-    { to: '/dashboard/members', text: 'Members' },
-    { to: '/dashboard/check-ins', text: 'Check-ins' },
   ] : [
     { to: '/member-portal', text: 'Home' },
-    { to: '/member-portal/check-ins', text: 'Check-ins' },
-    { to: '/member-portal/family', text: 'Family' },
   ]
 })
 
 // Profile menu items
 const profileMenuItems = [
   { to: '/profile', text: 'Your Profile' },
-  { to: '/profile/settings', text: 'Settings' },
 ]
 
 // Get user initials for avatar
