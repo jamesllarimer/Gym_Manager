@@ -11,6 +11,15 @@
       </div>
 
       <div v-else class="space-y-8">
+        <!-- Toast notification -->
+        <div 
+          v-if="toast" 
+          class="fixed top-4 right-4 px-4 py-2 rounded-md text-sm font-medium text-white transition-opacity duration-300"
+          :class="toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'"
+        >
+          {{ toast.message }}
+        </div>
+
         <!-- Membership Info -->
         <div class="bg-white shadow rounded-lg">
           <div class="px-4 py-5 sm:p-6">
@@ -31,14 +40,41 @@
                   <p>{{ formatDate(memberData.expiration_date) }}</p>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
 
-              <button
-                v-if="!memberData.digital_cards?.length"
-                @click="generateDigitalCard(memberData.id)"
-                class="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+        <!-- Primary Member Barcode -->
+        <div class="bg-white shadow rounded-lg">
+          <div class="px-4 py-5 sm:p-6">
+            <BarcodeDisplay
+              :barcode-data="memberData.barcode"
+              :name="memberData.name"
+              :show-apple-wallet="!hasApplePass"
+              :show-google-wallet="!hasGooglePass"
+              @add-to-wallet="(type) => handleAddToWallet(type)"
+            />
+          </div>
+        </div>
+
+        <!-- Family Members -->
+        <div v-if="memberData.family_members?.length" class="bg-white shadow rounded-lg">
+          <div class="px-4 py-5 sm:p-6">
+            <h3 class="text-lg font-medium leading-6 text-gray-900">Family Members</h3>
+            <div class="mt-5 space-y-6">
+              <div 
+                v-for="familyMember in memberData.family_members" 
+                :key="familyMember.id"
+                class="border-b pb-4 last:border-0"
               >
-                Add to Digital Wallet
-              </button>
+                <BarcodeDisplay
+                  :barcode-data="familyMember.barcode"
+                  :name="familyMember.name"
+                  :show-apple-wallet="!hasFamilyMemberWallet(familyMember, 'apple')"
+                  :show-google-wallet="!hasFamilyMemberWallet(familyMember, 'google')"
+                  @add-to-wallet="(type) => handleAddToWallet(type, familyMember)"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -61,48 +97,35 @@
             </div>
           </div>
         </div>
-
-        <!-- Family Members -->
-        <div v-if="memberData.family_members?.length" class="bg-white shadow rounded-lg">
-          <div class="px-4 py-5 sm:p-6">
-            <h3 class="text-lg font-medium leading-6 text-gray-900">Family Members</h3>
-            <div class="mt-5 space-y-6">
-              <div 
-                v-for="familyMember in memberData.family_members" 
-                :key="familyMember.id"
-                class="border-b pb-4 last:border-0"
-              >
-                <div class="flex justify-between items-start">
-                  <div>
-                    <h4 class="font-medium">{{ familyMember.name }}</h4>
-                    <p class="text-sm text-gray-500">{{ familyMember.relationship }}</p>
-                  </div>
-                  <button
-                    v-if="!familyMember.digital_cards?.length"
-                    @click="generateDigitalCard(memberData.id, familyMember.id)"
-                    class="px-3 py-1 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-                  >
-                    Add to Digital Wallet
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-definePageMeta({
-  middleware: ['member-access']
-})
-
 const client = useSupabaseClient()
 const memberData = ref(null)
 const loading = ref(true)
 const error = ref(null)
+const toast = ref(null)
+
+const hasApplePass = computed(() => 
+  memberData.value?.digital_cards?.some(card => 
+    card.apple_pass_id && !card.family_member_id
+  )
+)
+
+const hasGooglePass = computed(() => 
+  memberData.value?.digital_cards?.some(card => 
+    card.google_pass_id && !card.family_member_id
+  )
+)
+
+function hasFamilyMemberWallet(familyMember, type) {
+  return memberData.value?.digital_cards?.some(card => 
+    card[`${type}_pass_id`] && card.family_member_id === familyMember.id
+  )
+}
 
 const sortedCheckIns = computed(() => {
   if (!memberData.value?.check_ins) return []
@@ -121,6 +144,36 @@ function formatDateTime(isoDate) {
   return new Date(isoDate).toLocaleString()
 }
 
+function showToastMessage(message, type = 'success') {
+  toast.value = { message, type }
+  setTimeout(() => {
+    toast.value = null
+  }, 3000)
+}
+
+async function handleAddToWallet(type, familyMember = null) {
+  try {
+    // Generate a unique pass ID (in production, this would come from Apple/Google Wallet APIs)
+    const passId = `${type}_${Date.now()}_${Math.random().toString(36).substring(7)}`
+    
+    const { error: cardError } = await client
+      .from('digital_cards')
+      .insert({
+        member_id: familyMember ? null : memberData.value.id,
+        family_member_id: familyMember?.id,
+        [`${type}_pass_id`]: passId
+      })
+
+    if (cardError) throw cardError
+    
+    showToastMessage(`Successfully added to ${type} wallet`)
+    await fetchMemberData() // Refresh the data
+  } catch (err) {
+    showToastMessage(`Failed to add to ${type} wallet: ${err.message}`, 'error')
+    console.error('Wallet error:', err)
+  }
+}
+
 async function fetchMemberData() {
   try {
     const { data: { user } } = await client.auth.getUser()
@@ -135,6 +188,7 @@ async function fetchMemberData() {
           name,
           email,
           relationship,
+          barcode,
           digital_cards(*)
         ),
         digital_cards(*),
@@ -152,24 +206,8 @@ async function fetchMemberData() {
   }
 }
 
-async function generateDigitalCard(memberId, familyMemberId = null) {
-  try {
-    const { error: cardError } = await client
-      .from('digital_cards')
-      .insert({
-        member_id: familyMemberId ? null : memberId,
-        family_member_id: familyMemberId,
-        apple_pass_id: 'placeholder',
-        google_pass_id: 'placeholder'
-      })
-
-    if (cardError) throw cardError
-    await fetchMemberData() // Refresh data
-  } catch (err) {
-    error.value = err.message
-  }
-}
-
 // Fetch data on mount
-onMounted(fetchMemberData)
+onMounted(() => {
+  fetchMemberData()
+})
 </script>
